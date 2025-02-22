@@ -55,7 +55,7 @@ This app allows you to predict the bioactivity towards inhibting the `keap-1` pr
 with st.sidebar.header('1. Upload your CSV data'):
     uploaded_file = st.sidebar.file_uploader("Upload your input file", type=['txt'])
     st.sidebar.markdown("""
-[Example input file](https://raw.githubusercontent.com/dataprofessor/bioactivity-prediction-app/main/example_acetylcholinesterase.txt)
+[Example input file](https://github.com/mabdelmaksoud53/keap1/blob/main/example.txt)
 """)
 
 if st.sidebar.button('Predict'):
