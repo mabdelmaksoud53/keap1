@@ -1,4 +1,4 @@
-# Keap-1 prediction app
+# **Keap-1 prediction app**
 
 A simple Streamlit app allows you to predict the bioactivity towards inhibting the `keap-1` protein.
 
