@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from PIL import Image
 import subprocess
+import sys
 import os
 import base64
 import pickle
@@ -10,7 +11,7 @@ import pickle
 def desc_calc():
     # Performs the descriptor calculation
     bashCommand = "java -Xms2G -Xmx2G -Djava.awt.headless=true -jar ./PaDEL-Descriptor/PaDEL-Descriptor.jar -removesalt -standardizenitro -fingerprints -descriptortypes ./PaDEL-Descriptor/PubchemFingerprinter.xml -dir ./ -file descriptors_output.csv"
-    process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE, shell=True)
+    process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE)
     output, error = process.communicate()
     os.remove('molecule.smi')
 
@@ -41,9 +42,9 @@ def build_model(input_data):
 
 # Page title
 st.markdown("""
-# Bioactivity Prediction App (keap-1)
+# `Keap-1` bioactivity Prediction App
 
-This app allows you to predict the bioactivity towards inhibting the `coronavirus` enzyme.
+This app allows you to predict the bioactivity towards inhibting the `keap-1` protein.
 **Credits**
 - App built in `Python` + `Streamlit` by [Mostafa Sayed](https://github.com/mabdelmaksoud53)
 - Descriptor calculated using [PaDEL-Descriptor](http://www.yapcwsoft.com/dd/padeldescriptor/) [[Read the Paper]](https://doi.org/10.1002/jcc.21707).
@@ -83,4 +84,4 @@ if st.sidebar.button('Predict'):
     # Apply trained model to make prediction on query compounds
     build_model(desc_subset)
 else:
-    st.info('Upload input data in the sidebar to start!')
+    st.info('Upload input data option in the left sidebar to start!')
