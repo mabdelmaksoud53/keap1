@@ -1,95 +1,119 @@
 import streamlit as st
 import pandas as pd
-import os
 import subprocess
+import os
+import joblib
+from rdkit import Chem
+from rdkit.Chem import Descriptors
+from rdkit.ML.Descriptors import MoleculeDescriptors
+from rdkit.Chem import Draw
+from io import BytesIO
 import base64
-import pickle
 
-# Install Java (for Streamlit Cloud)
-os.system("apt-get install -y default-jre")
-os.system("java -version")
+st.set_page_config(
+    page_title="Virtual Screening")
 
-# Molecular descriptor calculator
-def desc_calc():
-    padel_command = (
-        "java -Xms2G -Xmx2G -Djava.awt.headless=true "
-        "-jar PaDEL-Descriptor/PaDEL-Descriptor.jar "
-        "-removesalt -standardizenitro -fingerprints "
-        "-descriptortypes PaDEL-Descriptor/PubchemFingerprinter.xml "
-        "-dir ./ -file descriptors_output.csv"
-    )
-    process = subprocess.Popen(padel_command.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+st.header("Virtual Screening")
+st.warning("""
+[Click here to see example for input format](https://drive.google.com/file/d/1Qa-0JKVa9ccuSMd4Km6Z5nP-RLeT1Gp0/view?usp=sharing)
+""")
+
+def PUbchemfp_desc_calc():
+    # Performs the descriptor calculation
+    bashCommand = "java -Xms2G -Xmx2G -Djava.awt.headless=true -jar ./PaDEL-Descriptor/PaDEL-Descriptor.jar -removesalt -detectaromaticity -fingerprints  -descriptortypes ./PaDEL-Descriptor/PubchemFingerprinter.xml -dir ./ -file descriptors_output.csv"
+    process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE, shell=True)
     output, error = process.communicate()
+    os.remove('molecule.smi')
+    
+def descriptors(smiles):
+    mols = [Chem.MolFromSmiles(s) for s in smiles] 
+    calc = MoleculeDescriptors.MolecularDescriptorCalculator([x[0] for x in Descriptors._descList])
+    desc_names = calc.GetDescriptorNames()
+    
+    Mol_descriptors =[]
+    for mol in mols:
 
-    if os.path.exists("molecule.smi"):
-        os.remove("molecule.smi")
+        descriptors = calc.CalcDescriptors(mol)
+        Mol_descriptors.append(descriptors)
+    return Mol_descriptors,desc_names 
 
-    if error:
-        st.error("Error running PaDEL-Descriptor: " + error.decode())
+def smiles_to_image(smiles, mol_size=(200, 200)):
+    mol = Chem.MolFromSmiles(smiles)
+    if mol:
+        img = Draw.MolToImage(mol, size=mol_size)
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        buffer.seek(0)
+        img_str = base64.b64encode(buffer.read()).decode()
+        return f'<img src="data:image/png;base64,{img_str}" alt="Molecule">'
+    else:
+        return "Invalid SMILES"	
+    
 
-# File download function
-def filedownload(df):
-    csv = df.to_csv(index=False)
-    b64 = base64.b64encode(csv.encode()).decode()
-    href = f'<a href="data:file/csv;base64,{b64}" download="prediction.csv">Download Predictions</a>'
-    return href
+# Model
+def the_model(input_data):
+    load_model = joblib.load('keap1_model.pkl')
+    # Make prediction
+    prediction = load_model.predict(input_data)
+    prediction_probability=load_model.predict_proba(input_data)
+    
+    x=pd.DataFrame(prediction_probability,columns=["Pi","Pa"])
+    st.header('Prediction Result')
+    
+    prediction_output = pd.Series(prediction, name='Result')
 
-# Model building function
-def build_model(input_data):
-    try:
-        with open("keap1_model.pkl", "rb") as model_file:
-            load_model = pickle.load(model_file)
-        
-        prediction = load_model.predict(input_data)
-        st.header("**Prediction Output**")
-        
-        prediction_output = pd.Series(prediction, name="pIC50")
-        df = pd.concat([pd.Series(input_data.index, name="Molecule"), prediction_output], axis=1)
-        
-        st.write(df)
-        st.markdown(filedownload(df), unsafe_allow_html=True)
+    #proba_output=pd.Series(prediction_probability,name="prediction_proba")
+    
+    molecule_name = pd.Series(reading_data["Molecule Name"], name='Molecule Name')
+    
+    Result= pd.concat([molecule_name, x, prediction_output], axis=1)
+    
+    result = []
+    for x in Result["Result"]:
+        if x==1:
+            result.append("Active")
+        if x==0:
+            result.append("Inactive")
+    Result["Result"]=result
+    st.write(Result)
+    prediction_csv = Result.to_csv(index=False,sep=",")
+    st.download_button(label="Download prediction results",data=prediction_csv,file_name="vs_results.csv")
 
-    except Exception as e:
-        st.error(f"Model prediction error: {str(e)}")
 
-# Streamlit UI
-st.markdown("# 🧪 Bioactivity Prediction App (Keap-1 Inhibitor)")
-st.sidebar.header("1️⃣ Upload Your Molecule Data")
-uploaded_file = st.sidebar.file_uploader("Upload your file (TXT format)", type=["txt"])
 
-if uploaded_file is not None:
-    try:
-        load_data = pd.read_csv(uploaded_file, sep=' ', header=None)
-        load_data.to_csv("molecule.smi", sep="\t", header=False, index=False)
-        
-        st.header("**📄 Original Input Data**")
-        st.write(load_data)
-        
-        with st.spinner("🔬 Calculating descriptors..."):
-            desc_calc()
-        
-        if not os.path.exists("descriptors_output.csv"):
-            st.error("Descriptor calculation failed. Please check your input file.")
-        else:
-            st.header("**🧬 Calculated Molecular Descriptors**")
-            desc = pd.read_csv("descriptors_output.csv")
-            st.write(desc)
-            st.write(f"Shape: {desc.shape}")
-            
-            if os.path.exists("descriptor_list.csv"):
-                Xlist = list(pd.read_csv("descriptor_list.csv").columns)
-                desc_subset = desc[Xlist]
-                
-                st.header("**📊 Subset of Descriptors Used for Prediction**")
-                st.write(desc_subset)
-                st.write(f"Shape: {desc_subset.shape}")
-                
-                with st.spinner("🔄 Running Prediction..."):
-                    build_model(desc_subset)
-            else:
-                st.error("Descriptor list file not found!")
+uplouded_file=st.file_uploader("Please upload your input file", type=['txt'])
 
-    except Exception as e:
-        st.error(f"Error processing input file: {str(e)}")
+
+if st.button('Predict'):
+    reading_data = pd.read_table(uplouded_file, sep=' ', names=["Smiles","Molecule Name"])
+    reading_data.to_csv('molecule.smi', sep = '\t', index = False, header=None)
+    reading_data['Structure'] = reading_data['Smiles'].apply(smiles_to_image)
+    st.subheader('Input data')
+    st.markdown(reading_data.to_html(escape=False, index=False), unsafe_allow_html=True)
+   ## st.write(reading_data)
+
+
+
+    PUbchemfp_desc_calc()
+
+ 
+    st.subheader('Generated PubChem_Fingerprints')
+    pubfp_calc = pd.read_csv("descriptors_output.csv")
+    pubfp_calc.drop('Name', axis=1, inplace=True)
+    st.write(pubfp_calc)
+    st.write(pubfp_calc.shape)
+   
+    first_column = reading_data.iloc[:, 0] 
+    Mol_descriptors,desc_names =descriptors(first_column)
+    df_with_200_descriptors = pd.DataFrame(Mol_descriptors,columns=desc_names)
+    df=df_with_200_descriptors[["MolWt","MolLogP","NumHAcceptors","NumHDonors"]]
+    st.subheader("Lipinski Rule of 5 Descriptors")
+    st.write(df)
+    
+    
+    the_model(pubfp_calc)
 else:
-    st.info("📂 Upload a TXT file in the sidebar to start!")
+    st.warning('Limit 250 compounds per file')
+    
+    
